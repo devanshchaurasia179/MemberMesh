@@ -78,7 +78,7 @@ function extractMemberSnapshot(body) {
 export async function createSubscription(req, res) {
   try {
     const businessId = req.user.id;
-    const { planId, planData, duration, billingCycle } = req.body;
+    const { planId, planData, duration, billingCycle, code: customCode } = req.body;
 
     /* ── 1. Validate member snapshot ── */
     const { snapshot, error: snapshotError } = extractMemberSnapshot(req.body);
@@ -112,8 +112,16 @@ export async function createSubscription(req, res) {
     /* ── 4. Calculate scaled price ── */
     const amountPaid = calculateScaledPrice(plan.price, plan.duration, finalDuration);
 
-    /* ── 5. Generate code & dates ── */
-    const code      = await generateSubscriptionCode(businessId, plan._id, plan.name);
+    /* ── 5. Generate or use custom code & dates ── */
+    let code;
+    if (customCode && customCode.trim()) {
+      const trimmedCode = customCode.trim();
+      const existing = await Subscription.findOne({ business: businessId, code: trimmedCode });
+      if (existing) return res.status(400).json({ message: "This code is already in use" });
+      code = trimmedCode;
+    } else {
+      code = await generateSubscriptionCode(businessId, plan._id, plan.name);
+    }
     const startDate = new Date();
     const expiryDate = calculateExpiry(startDate, finalDuration, finalBillingCycle);
 
@@ -190,7 +198,7 @@ export async function updateSubscription(req, res) {
   try {
     const { id }     = req.params;
     const businessId = req.user.id;
-    const { name, mobile, address } = req.body;
+    const { name, mobile, address, code } = req.body;
 
     const subscription = await Subscription.findOne({ _id: id, business: businessId })
       .populate("plan");
@@ -209,6 +217,21 @@ export async function updateSubscription(req, res) {
       subscription.memberSnapshot.address = address.trim() || null;
     }
 
+    /* ── Update subscription code ── */
+    if (code !== undefined) {
+      const trimmedCode = code.trim();
+      if (!trimmedCode) return res.status(400).json({ message: "Code cannot be empty" });
+      // Ensure code is unique within this business (excluding current subscription)
+      const existing = await Subscription.findOne({
+        business: businessId,
+        code: trimmedCode,
+        _id: { $ne: id },
+      });
+      if (existing) return res.status(400).json({ message: "This code is already in use" });
+      subscription.code = trimmedCode;
+    }
+
+    subscription.markModified("memberSnapshot");
     await subscription.save();
 
     return res.status(200).json({ success: true, subscription });
