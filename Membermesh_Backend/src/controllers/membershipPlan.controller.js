@@ -99,7 +99,7 @@ export async function updatePlan(req, res) {
     const updatedPlan = await MembershipPlan.findOneAndUpdate(
       { _id: id, business: businessId }, // ✅ FIX
       req.body,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!updatedPlan) {

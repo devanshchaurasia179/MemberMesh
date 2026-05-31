@@ -13,6 +13,7 @@ import {
   sendAnalyticsPinResetOtp,
   resetAnalyticsPinWithOtp,
   logout,
+  updateProfile,
 } from "../controllers/auth.controller.js";
 
 import { protectRoute } from "../middleware/auth.middleware.js";
@@ -36,6 +37,9 @@ router.post("/verify-analytics-pin", protectRoute, verifyAnalyticsPin);
 
 /* ================= ONBOARDING ================= */
 router.post("/onboarding", protectRoute, onboard);
+
+/* ================= PROFILE ================= */
+router.put("/profile", protectRoute, updateProfile);
 
 /* ================= SESSION ================= */
 router.post("/logout", logout);

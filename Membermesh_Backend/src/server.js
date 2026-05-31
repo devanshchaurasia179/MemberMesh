@@ -6,7 +6,6 @@ import cors from "cors";
 import path from "path";
 import membershipRoutes from "./routes/auth.routes.js";
 import MembershipPlan from "./routes/membershipPlan.routes.js";
-import MembershipCustomer from "./routes/customer.routes.js";
 import Subscriptions from "./routes/subscription.routes.js";
 dotenv.config();
 
@@ -31,7 +30,6 @@ app.use(
 //Membership
 app.use("/api/membership/auth", membershipRoutes);
 app.use("/api/membership/plans", MembershipPlan);
-app.use("/api/membership/customer", MembershipCustomer);
 app.use("/api/membership/subscription", Subscriptions);
 
 

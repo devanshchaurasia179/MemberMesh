@@ -543,6 +543,78 @@ export async function onboard(req, res) {
 }
 
 /* =====================================================
+   UPDATE PROFILE
+===================================================== */
+export async function updateProfile(req, res) {
+  try {
+    const businessId = req.user._id;
+
+    const {
+      ownerName,
+      businessName,
+      gstNumber,
+      upiId,
+      location,
+    } = req.body;
+
+    // Validate required fields
+    if (!ownerName || !businessName) {
+      return res.status(400).json({
+        message: "Owner Name and Business Name are required",
+      });
+    }
+
+    const updateData = {
+      ownerName,
+      businessName,
+      gstNumber: gstNumber || "",
+      upiId: upiId || "",
+      location: location || "",
+    };
+
+    // Calculate profile completion
+    const completionFields = {
+      ownerName,
+      businessName,
+      gstNumber,
+      upiId,
+      location,
+    };
+
+    const filledFields = Object.values(completionFields).filter(
+      (v) => v && v.toString().trim() !== ""
+    ).length;
+
+    const profileCompletion = Math.round(
+      (filledFields / Object.keys(completionFields).length) * 100
+    );
+
+    const business = await Business.findByIdAndUpdate(
+      businessId,
+      {
+        ...updateData,
+        profileCompletion,
+        isOnboarded: profileCompletion === 100,
+      },
+      { new: true }
+    );
+
+    if (!business) {
+      return res.status(404).json({ message: "Business not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      shop: business,
+    });
+  } catch (error) {
+    console.error("Update Profile Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+/* =====================================================
    LOGOUT
 ===================================================== */
 export function logout(req, res) {

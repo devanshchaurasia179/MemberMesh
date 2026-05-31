@@ -3,7 +3,7 @@ import {
   createSubscription,
   getAllSubscriptions,
   getSubscription,
-  getMemberSubscriptions,
+  updateSubscription,
   renewSubscription,
   cancelSubscription,
 } from "../controllers/subscription.controller.js";
@@ -15,13 +15,11 @@ router.post("/",protectRoute, createSubscription);
 
 /* ================= READ ================= */
 router.get("/",protectRoute, getAllSubscriptions); // Get all subscriptions
-router.get("/member/:memberId",protectRoute, getMemberSubscriptions); // Get subscriptions of a member
 router.get("/:id",protectRoute, getSubscription); // Get single subscription
 
 /* ================= UPDATE ================= */
 router.put("/renew/:id",protectRoute, renewSubscription); // Renew subscription
-
-/* ================= DELETE / CANCEL ================= */
 router.put("/cancel/:id",protectRoute, cancelSubscription); // Cancel subscription
+router.put("/:id",protectRoute, updateSubscription); // Update member details
 
 export default router;

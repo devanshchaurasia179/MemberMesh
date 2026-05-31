@@ -1,8 +1,10 @@
 import Subscription from "../models/Subscription.js";
-import Member from "../models/Member.js";
 import MembershipPlan from "../models/MembershipPlan.js";
-import mongoose from "mongoose";
-/* ================= HELPER: CALCULATE EXPIRY ================= */
+
+/* ================================================================
+   HELPER: CALCULATE EXPIRY DATE
+   Returns null for LIFETIME plans.
+================================================================ */
 function calculateExpiry(startDate, duration, billingCycle) {
   const date = new Date(startDate);
 
@@ -18,326 +20,299 @@ function calculateExpiry(startDate, duration, billingCycle) {
       break;
     case "LIFETIME":
       return null;
+    default:
+      throw new Error(`Unknown billingCycle: ${billingCycle}`);
   }
 
   return date;
 }
 
-/* ================= CREATE SUBSCRIPTION ================= */
+/* ================================================================
+   HELPER: CALCULATE SCALED PRICE
+   Allows renewing for N units even if the base plan is 1 unit.
+   Formula: totalPrice = (planPrice / planDuration) × selectedDuration
+================================================================ */
+function calculateScaledPrice(planPrice, planDuration, selectedDuration) {
+  if (!planDuration || planDuration === 0) return planPrice;
+  const pricePerUnit = planPrice / planDuration;
+  return parseFloat((pricePerUnit * selectedDuration).toFixed(2));
+}
+
+/* ================================================================
+   HELPER: GENERATE SUBSCRIPTION CODE
+   Format: <PLANPREFIX><ZeroPaddedCount>  e.g. GOLD03
+================================================================ */
+async function generateSubscriptionCode(businessId, planId, planName) {
+  const planPrefix = planName.replace(/\s+/g, "").toUpperCase().slice(0, 8);
+  const count = await Subscription.countDocuments({ business: businessId, plan: planId });
+  const formattedNumber = String(count + 1).padStart(2, "0");
+  return `${planPrefix}${formattedNumber}`;
+}
+
+/* ================================================================
+   HELPER: VALIDATE MEMBER SNAPSHOT INPUT
+   name is required; mobile and address are optional.
+================================================================ */
+function extractMemberSnapshot(body) {
+  const { name, mobile, address } = body;
+
+  if (!name || !name.trim()) {
+    return { error: "Member name is required" };
+  }
+
+  return {
+    snapshot: {
+      name:    name.trim(),
+      mobile:  mobile?.trim()  || null,
+      address: address?.trim() || null,
+    },
+  };
+}
+
+/* ================================================================
+   CREATE SUBSCRIPTION
+   Body: { name, mobile?, address?, planId, duration?, billingCycle? }
+   - No member selection needed; snapshot is stored inline.
+   - duration/billingCycle override the plan defaults for pricing.
+================================================================ */
 export async function createSubscription(req, res) {
   try {
-    let { memberId, planId, memberName,phone, planData } = req.body;
     const businessId = req.user.id;
+    const { planId, planData, duration, billingCycle } = req.body;
 
-    /* ================= MEMBER HANDLING ================= */
-    let member;
+    /* ── 1. Validate member snapshot ── */
+    const { snapshot, error: snapshotError } = extractMemberSnapshot(req.body);
+    if (snapshotError) return res.status(400).json({ message: snapshotError });
 
-    if (!memberId) {
-      if (!memberName) {
-        return res.status(400).json({
-          message: "Member name required if memberId not provided",
-        });
-      }
-      if(!phone){
-          phone = new mongoose.Types.ObjectId()
-                  .toString()
-                  .slice(-8);
-        }
-
-      // ✅ Create minimal member
-      member = await Member.create({
-        business: businessId,
-        name: memberName,
-        phone:phone
-      });
-
-      memberId = member._id;
-    } else {
-      member = await Member.findOne({
-        _id: memberId,
-        business: businessId,
-      });
-
-      if (!member) {
-        return res.status(404).json({ message: "Member not found" });
-      }
-    }
-
-    /* ================= PLAN HANDLING ================= */
+    /* ── 2. Resolve plan ── */
     let plan;
 
-    if (!planId) {
-      if (!planData?.name || !planData?.price || !planData?.duration) {
-        return res.status(400).json({
-          message:
-            "Plan data (name, price, duration) required if planId not provided",
-        });
-      }
-
-      // ✅ Create minimal plan
+    if (planId) {
+      plan = await MembershipPlan.findOne({ _id: planId, business: businessId, isActive: true });
+      if (!plan) return res.status(400).json({ message: "Invalid or inactive plan" });
+    } else if (planData?.name && planData?.price != null && planData?.duration) {
       plan = await MembershipPlan.create({
-        business: businessId,
-        name: planData.name,
-        price: planData.price,
-        duration: planData.duration,
+        business:     businessId,
+        name:         planData.name,
+        price:        planData.price,
+        duration:     planData.duration,
         billingCycle: planData.billingCycle || "MONTH",
-        isActive: true,
+        isActive:     true,
       });
-
-      planId = plan._id;
     } else {
-      plan = await MembershipPlan.findOne({
-        _id: planId,
-        business: businessId,
-        isActive: true,
+      return res.status(400).json({
+        message: "Provide either a valid planId or planData (name, price, duration)",
       });
-
-      if (!plan) {
-        return res.status(400).json({ message: "Invalid or inactive plan" });
-      }
     }
-/* ================= CHECK DUPLICATE PLAN ================= */
-const existingSubscription = await Subscription.findOne({
-  business: businessId,
-  member: memberId,
-  plan: planId,
-  status: "ACTIVE",
-});
 
-if (existingSubscription) {
-  return res.status(400).json({
-    message: "User already has this subscription",
-  });
-}
-/* ================= GENERATE CODE ================= */
-const planPrefix = plan.name.replace(/\s+/g, "").toUpperCase();
+    /* ── 3. Resolve effective duration & billing cycle ── */
+    const finalDuration     = duration     ? Number(duration)     : plan.duration;
+    const finalBillingCycle = billingCycle || plan.billingCycle;
 
-const count = await Subscription.countDocuments({
-  business: businessId,
-  plan: planId,
-});
+    /* ── 4. Calculate scaled price ── */
+    const amountPaid = calculateScaledPrice(plan.price, plan.duration, finalDuration);
 
-const nextNumber = count + 1;
+    /* ── 5. Generate code & dates ── */
+    const code      = await generateSubscriptionCode(businessId, plan._id, plan.name);
+    const startDate = new Date();
+    const expiryDate = calculateExpiry(startDate, finalDuration, finalBillingCycle);
 
-const formattedNumber = String(nextNumber).padStart(2, "0");
-
-const code = `${planPrefix}${formattedNumber}`;
-
-/* ================= SUBSCRIPTION ================= */
-const startDate = new Date();
-
-const expiryDate = calculateExpiry(
-  startDate,
-  plan.duration,
-  plan.billingCycle
-);
-
-const subscription = await Subscription.create({
-  business: businessId,
-  member: memberId,
-  plan: planId,
-  code,
-  startDate,
-  expiryDate,
-  amountPaid: plan.price,
-  status: "ACTIVE",
-  paymentStatus: "PAID",
-});
-
-    res.status(201).json({
-      success: true,
-      subscription,
+    /* ── 6. Create subscription ── */
+    const subscription = await Subscription.create({
+      business:       businessId,
+      memberSnapshot: snapshot,
+      plan:           plan._id,
+      code,
+      startDate,
+      expiryDate,
+      amountPaid,
+      durationUsed:     finalDuration,
+      billingCycleUsed: finalBillingCycle,
+      status:        "ACTIVE",
+      paymentStatus: "PAID",
     });
 
-  } catch (error) {
-    console.error("Create Subscription Error:", error);
-    res.status(500).json({ message: "Internal Server Error" });
+    return res.status(201).json({ success: true, subscription });
+
+  } catch (err) {
+    console.error("createSubscription:", err);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 }
 
-/* ================= GET ALL SUBSCRIPTIONS ================= */
+/* ================================================================
+   GET ALL SUBSCRIPTIONS  (for a business)
+================================================================ */
 export async function getAllSubscriptions(req, res) {
   try {
     const businessId = req.user.id;
 
-    const subscriptions = await Subscription.find({
-      business: businessId, // ✅ FIX
-    })
-      .populate("member")
+    const subscriptions = await Subscription.find({ business: businessId })
       .populate("plan")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      subscriptions,
-    });
+    return res.status(200).json({ success: true, subscriptions });
 
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch subscriptions" });
+  } catch (err) {
+    console.error("getAllSubscriptions:", err);
+    return res.status(500).json({ message: "Failed to fetch subscriptions" });
   }
 }
 
-/* ================= GET SINGLE SUBSCRIPTION ================= */
+/* ================================================================
+   GET SINGLE SUBSCRIPTION
+================================================================ */
 export async function getSubscription(req, res) {
   try {
-    const { id } = req.params;
-    const businessId = req.user.id;
+    const { id }      = req.params;
+    const businessId  = req.user.id;
 
-    const subscription = await Subscription.findOne({
-      _id: id,
-      business: businessId, // ✅ SECURITY
-    })
-      .populate("member")
+    const subscription = await Subscription.findOne({ _id: id, business: businessId })
       .populate("plan");
 
-    if (!subscription) {
-      return res.status(404).json({ message: "Subscription not found" });
-    }
+    if (!subscription) return res.status(404).json({ message: "Subscription not found" });
 
-    res.status(200).json({
-      success: true,
-      subscription,
-    });
+    return res.status(200).json({ success: true, subscription });
 
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch subscription" });
+  } catch (err) {
+    console.error("getSubscription:", err);
+    return res.status(500).json({ message: "Failed to fetch subscription" });
   }
 }
 
-/* ================= GET MEMBER SUBSCRIPTIONS ================= */
-export async function getMemberSubscriptions(req, res) {
+
+/* ================================================================
+   UPDATE SUBSCRIPTION (Edit member details)
+   Body: { name?, mobile?, address? }
+   - Updates the memberSnapshot inline data
+================================================================ */
+export async function updateSubscription(req, res) {
   try {
-    const { memberId } = req.params;
+    const { id }     = req.params;
     const businessId = req.user.id;
+    const { name, mobile, address } = req.body;
 
-    const subscriptions = await Subscription.find({
-      member: memberId,
-      business: businessId, // ✅ FIX
-    })
-      .populate("plan")
-      .sort({ createdAt: -1 });
+    const subscription = await Subscription.findOne({ _id: id, business: businessId })
+      .populate("plan");
 
-    res.status(200).json({
-      success: true,
-      subscriptions,
-    });
+    if (!subscription) return res.status(404).json({ message: "Subscription not found" });
 
-  } catch (error) {
-    res.status(500).json({ message: "Failed to fetch member subscriptions" });
-  }
-}
-
-/* ================= RENEW SUBSCRIPTION ================= */
-export async function renewSubscription(req, res) {
-  try {
-    const { id } = req.params;
-    const businessId = req.user.id;
-
-    // 👇 Accept optional custom values from body
-    const { duration, billingCycle } = req.body;
-
-    const subscription = await Subscription.findOne({
-      _id: id,
-      business: businessId,
-    }).populate("plan");
-
-    if (!subscription) {
-      return res.status(404).json({ message: "Subscription not found" });
+    /* ── Update member snapshot fields ── */
+    if (name !== undefined) {
+      if (!name.trim()) return res.status(400).json({ message: "Member name cannot be empty" });
+      subscription.memberSnapshot.name = name.trim();
     }
-
-    const now = new Date();
-
-    // 👇 Decide base date
-    const baseDate =
-      subscription.expiryDate && subscription.expiryDate >= now
-        ? subscription.expiryDate
-        : now;
-
-    // 👇 Use custom values if provided, else fallback to plan
-    const finalDuration = duration || subscription.plan.duration;
-    const finalBillingCycle =
-      billingCycle || subscription.plan.billingCycle;
-
-    // 👇 Calculate new expiry
-    const newExpiry = calculateExpiry(
-      baseDate,
-      finalDuration,
-      finalBillingCycle
-    );
-
-    // 👇 Update subscription
-    subscription.expiryDate = newExpiry;
-    subscription.status = "ACTIVE";
-    subscription.paymentStatus = "PAID";
-
-    // 👇 Optional: update amount if custom duration used
-    if (duration) {
-      // simple proportional pricing (optional logic)
-      const pricePerUnit =
-        subscription.plan.price / subscription.plan.duration;
-
-      subscription.amountPaid = pricePerUnit * finalDuration;
-    } else {
-      subscription.amountPaid = subscription.plan.price;
+    if (mobile !== undefined) {
+      subscription.memberSnapshot.mobile = mobile.trim() || null;
+    }
+    if (address !== undefined) {
+      subscription.memberSnapshot.address = address.trim() || null;
     }
 
     await subscription.save();
 
-    res.status(200).json({
-      success: true,
-      subscription,
-    });
-  } catch (error) {
-    console.error("Renewal Error:", error);
-    res.status(500).json({ message: "Renewal failed" });
+    return res.status(200).json({ success: true, subscription });
+
+  } catch (err) {
+    console.error("updateSubscription:", err);
+    return res.status(500).json({ message: "Update failed" });
   }
 }
-/* ================= CANCEL SUBSCRIPTION ================= */
+
+/* ================================================================
+   RENEW SUBSCRIPTION
+   Body: { duration?, billingCycle? }
+   - If duration is provided, price is scaled proportionally.
+   - Extends from current expiry if still active, else from now.
+   - For cancelled/expired subscriptions, updates startDate to today.
+================================================================ */
+export async function renewSubscription(req, res) {
+  try {
+    const { id }         = req.params;
+    const businessId     = req.user.id;
+    const { duration, billingCycle } = req.body;
+
+    const subscription = await Subscription.findOne({ _id: id, business: businessId })
+      .populate("plan");
+
+    if (!subscription) return res.status(404).json({ message: "Subscription not found" });
+
+    /* ── Resolve effective duration & billing cycle ── */
+    const finalDuration     = duration     ? Number(duration)     : subscription.plan.duration;
+    const finalBillingCycle = billingCycle || subscription.plan.billingCycle;
+
+    /* ── Base date: extend from current expiry if still valid ── */
+    const now      = new Date();
+    const isCancelledOrExpired = subscription.status === "CANCELLED" || subscription.status === "EXPIRED";
+    const baseDate = subscription.expiryDate && subscription.expiryDate >= now && !isCancelledOrExpired
+      ? subscription.expiryDate
+      : now;
+
+    /* ── Scaled price ── */
+    const amountPaid = calculateScaledPrice(
+      subscription.plan.price,
+      subscription.plan.duration,
+      finalDuration
+    );
+
+    /* ── Apply updates ── */
+    // Update startDate to today for cancelled/expired subscriptions
+    if (isCancelledOrExpired) {
+      subscription.startDate = now;
+    }
+    
+    subscription.expiryDate      = calculateExpiry(baseDate, finalDuration, finalBillingCycle);
+    subscription.status          = "ACTIVE";
+    subscription.paymentStatus   = "PAID";
+    subscription.amountPaid      = amountPaid;
+    subscription.durationUsed    = finalDuration;
+    subscription.billingCycleUsed = finalBillingCycle;
+
+    await subscription.save();
+
+    return res.status(200).json({ success: true, subscription });
+
+  } catch (err) {
+    console.error("renewSubscription:", err);
+    return res.status(500).json({ message: "Renewal failed" });
+  }
+}
+
+/* ================================================================
+   CANCEL SUBSCRIPTION
+================================================================ */
 export async function cancelSubscription(req, res) {
   try {
-    const { id } = req.params;
+    const { id }     = req.params;
     const businessId = req.user.id;
 
-    const subscription = await Subscription.findOne({
-      _id: id,
-      business: businessId,
-    });
+    const subscription = await Subscription.findOne({ _id: id, business: businessId });
 
-    if (!subscription) {
-      return res.status(404).json({ message: "Subscription not found" });
-    }
+    if (!subscription) return res.status(404).json({ message: "Subscription not found" });
 
-    const now = new Date();
-
-    // 👇 Set status + expiry immediately
-    subscription.status = "CANCELLED";
+    subscription.status     = "CANCELLED";
     subscription.expiryDate = null;
 
     await subscription.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Subscription cancelled",
-      subscription,
-    });
+    return res.status(200).json({ success: true, message: "Subscription cancelled", subscription });
 
-  } catch (error) {
-    console.error("Cancel Error:", error);
-    res.status(500).json({ message: "Cancel failed" });
+  } catch (err) {
+    console.error("cancelSubscription:", err);
+    return res.status(500).json({ message: "Cancel failed" });
   }
 }
-/* ================= AUTO EXPIRE (CRON USE) ================= */
+
+/* ================================================================
+   AUTO-EXPIRE  (called by a cron job, scoped to one business)
+================================================================ */
 export async function markExpiredSubscriptionsByBusiness(businessId) {
   const now = new Date();
 
-  await Subscription.updateMany(
-    {
-      business: businessId, // ✅ scoped
-      expiryDate: { $lt: now },
-      status: "ACTIVE",
-    },
-    {
-      status: "EXPIRED",
-    }
+  const result = await Subscription.updateMany(
+    { business: businessId, expiryDate: { $lt: now }, status: "ACTIVE" },
+    { $set: { status: "EXPIRED" } }
   );
+
+  return result.modifiedCount; // useful for cron logging
 }
