@@ -11,10 +11,9 @@ import { useRouter, usePathname } from "expo-router"; // Import hooks
 
 const NAV_ITEMS = [
   { id: "Home", icon: "home", route: "/" },
-  { id: "Members", icon: "users", route: "/members" },
   { id: "Plans", icon: "layers", route: "/plans" }, // Matches plans/index.tsx
-  { id: "Settings", icon: "settings", route: "/settings" },
-  { id: "Subscriptions", icon: "ticket", route: "/subscription" },
+  { id: "Profile", icon: "profile", route: "/profile" },
+  { id: "Subscriptions", icon: "credit-card", route: "/subscription" },
 ];
 
 export default function FooterBar() {

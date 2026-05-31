@@ -1,306 +1,342 @@
-import React, { useMemo, useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, ActivityIndicator,
-  TextInput, RefreshControl, StyleSheet, Platform, StatusBar,
+  View, Text, FlatList, TouchableOpacity,
+  ActivityIndicator, StyleSheet, StatusBar, Alert,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useSubscriptions, useRenewSubscription, useCancelSubscription, useCreateSubscription } from "../../hooks/useSubscription";
-import { useMembers } from "../../hooks/useMember";
+import {
+  useSubscriptions,
+  useCreateSubscription,
+  useUpdateSubscription,
+  useRenewSubscription,
+  useCancelSubscription,
+} from "../../hooks/useSubscription";
 import { usePlans } from "../../hooks/useMembership";
-import SubscriptionModal from "./components/Modal";
-import SubscriptionCard from "./components/Card";
+import type { Subscription } from "../../constants/subscription.api";
+import SubscriptionCard from "./components/SubscriptionCard";
+import CreateSubscriptionModal from "./components/CreateSubscriptionModal";
+import EditSubscriptionModal from "./components/EditSubscriptionModal";
+import RenewSubscriptionModal from "./components/RenewSubscriptionModal";
+import CancelConfirmationModal from "./components/CancelConfirmationModal";
+import { isThermalPrinterSaved } from "../../utils/printerManager";
+import { printRenewalReceipt, printSubscriptionReceipt } from "../../utils/thermalPrinter";
 
-const C = {
-  purple: "#7B6EF6", purpleLight: "#EEEEFE", purpleMid: "#A89AF8",
-  white: "#FFFFFF", offWhite: "#F7F7FD", border: "#EDEDFB",
-  text: "#1A1A2E", textMid: "#6B6B8A", textLight: "#A8A8C0",
-  green: "#10D4A0", greenLight: "#E6FAF6",
-  red: "#FF5E7D", redLight: "#FFECF0",
-  amber: "#FFB740", amberLight: "#FFF5E0",
-};
-
-type FilterType = "ALL" | "ACTIVE" | "EXPIRED" | "CANCELLED";
-
-const FILTERS: { key: FilterType; label: string; icon: string; color: string }[] = [
-  { key: "ALL",       label: "All",       icon: "layers-outline",          color: C.purple },
-  { key: "ACTIVE",    label: "Active",    icon: "checkmark-circle-outline", color: C.green  },
-  { key: "EXPIRED",   label: "Expired",   icon: "time-outline",             color: C.amber  },
-  { key: "CANCELLED", label: "Cancelled", icon: "close-circle-outline",     color: C.red    },
-];
-
-const safeStr = (v: any): string => (typeof v === "string" ? v : "");
-const cleanPhone = (phone: any): string => safeStr(phone).replace(/\D/g, "");
-
-export default function SubscriptionsScreen() {
+export default function SubscriptionScreen() {
   const router = useRouter();
-  const { data, isLoading, refetch, isRefetching } = useSubscriptions();
-  const renewMutation  = useRenewSubscription();
-  const cancelMutation = useCancelSubscription();
-  const createMutation = useCreateSubscription();
-  const { data: members } = useMembers();
-  const { data: plans }   = usePlans();
+  const { data: subscriptions, isLoading } = useSubscriptions();
+  const { data: plans } = usePlans();
+  const { mutate: createSubscription } = useCreateSubscription();
+  const { mutate: updateSubscription } = useUpdateSubscription();
+  const { mutate: renewSubscription } = useRenewSubscription();
+  const { mutate: cancelSubscription, isPending: isCancelling } = useCancelSubscription();
 
-  const [search,    setSearch]    = useState("");
-  const [filter,    setFilter]    = useState<FilterType>("ALL");
-  const [showModal, setShowModal] = useState(false);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [renewModalVisible, setRenewModalVisible] = useState(false);
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  const [isPrinterConnected, setIsPrinterConnected] = useState(false);
 
-  const filteredData = useMemo(() => {
-    if (!data) return [];
-    const q = search.toLowerCase().trim();
-    return data
-      .filter((item: any) => filter === "ALL" || item.status === filter)
-      .filter((item: any) => {
-        if (!q) return true;
-        const name  = safeStr(item.member?.name).toLowerCase();
-        const phone = cleanPhone(item.member?.phone);
-        const code  = safeStr(item.code).toLowerCase();
-        return name.includes(q) || phone.includes(q) || code.includes(q);
-      });
-  }, [data, search, filter]);
+  useEffect(() => {
+    checkPrinterStatus();
+  }, []);
 
-  const stats = useMemo(() => {
-    if (!data) return { revenue: 0, active: 0, expired: 0, cancelled: 0 };
-    return data.reduce(
-      (acc: any, s: any) => {
-        if (s.paymentStatus === "PAID") acc.revenue += Number(s.amountPaid) || 0;
-        if (s.status === "ACTIVE")    acc.active++;
-        if (s.status === "EXPIRED")   acc.expired++;
-        if (s.status === "CANCELLED") acc.cancelled++;
-        return acc;
+  const checkPrinterStatus = async () => {
+    try {
+      const hasSaved = await isThermalPrinterSaved();
+      setIsPrinterConnected(hasSaved);
+    } catch {
+      setIsPrinterConnected(false);
+    }
+  };
+
+  const handleEdit = (sub: Subscription) => {
+    setSelectedSubscription(sub);
+    setEditModalVisible(true);
+  };
+
+  const handleRenew = (sub: Subscription) => {
+    console.log("Opening renew modal for subscription:", sub._id, "Status:", sub.status);
+    setSelectedSubscription(sub);
+    setRenewModalVisible(true);
+  };
+
+  const handlePrintRenewal = async (subscription: Subscription) => {
+    if (!isPrinterConnected) {
+      Alert.alert(
+        "Printer Not Connected",
+        "Would you like to set up a printer?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Setup Printer", onPress: () => router.push("/printer") },
+        ]
+      );
+      return;
+    }
+
+    try {
+      await printRenewalReceipt(subscription);
+    } catch (error: any) {
+      Alert.alert("Print Failed", error?.message || "Could not print receipt");
+    }
+  };
+
+  const handlePrintSubscription = async (subscription: Subscription) => {
+    if (!isPrinterConnected) {
+      Alert.alert(
+        "Printer Not Connected",
+        "Would you like to set up a printer?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Setup Printer", onPress: () => router.push("/printer") },
+        ]
+      );
+      return;
+    }
+
+    try {
+      await printSubscriptionReceipt(subscription);
+    } catch (error: any) {
+      Alert.alert("Print Failed", error?.message || "Could not print receipt");
+    }
+  };
+
+  const handleCancel = (sub: Subscription) => {
+    console.log("handleCancel called for subscription:", sub._id);
+    setSelectedSubscription(sub);
+    setCancelModalVisible(true);
+  };
+
+  const confirmCancel = () => {
+    if (!selectedSubscription) return;
+    
+    console.log("User confirmed cancel, calling mutation...");
+    cancelSubscription(selectedSubscription._id, {
+      onSuccess: () => {
+        console.log("Cancel successful!");
+        setCancelModalVisible(false);
+        setSelectedSubscription(null);
+        Alert.alert("Success", "Subscription cancelled successfully");
       },
-      { revenue: 0, active: 0, expired: 0, cancelled: 0 }
-    );
-  }, [data]);
-
-  const filterCounts = useMemo(() => {
-    if (!data) return { ALL: 0, ACTIVE: 0, EXPIRED: 0, CANCELLED: 0 };
-    return data.reduce((acc: any, s: any) => {
-      acc.ALL++;
-      if (s.status === "ACTIVE")    acc.ACTIVE++;
-      if (s.status === "EXPIRED")   acc.EXPIRED++;
-      if (s.status === "CANCELLED") acc.CANCELLED++;
-      return acc;
-    }, { ALL: 0, ACTIVE: 0, EXPIRED: 0, CANCELLED: 0 });
-  }, [data]);
-
-  const handleCreate = (payload: any) => {
-    createMutation.mutate(payload, {
-      onSuccess: () => setShowModal(false),
+      onError: (error: any) => {
+        console.error("Cancel error:", error);
+        setCancelModalVisible(false);
+        Alert.alert(
+          "Error",
+          error?.response?.data?.message || "Failed to cancel subscription. Please try again."
+        );
+      },
     });
   };
+
+
+
+  const renderItem = ({ item }: { item: Subscription }) => (
+    <SubscriptionCard
+      item={item}
+      onEdit={handleEdit}
+      onRenew={handleRenew}
+      onCancel={handleCancel}
+      isCancelling={isCancelling}
+    />
+  );
 
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={C.purple} />
-        <Text style={styles.loadingText}>Loading subscriptions…</Text>
+        <ActivityIndicator size="large" color="#7F77DD" />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.offWhite} />
-
-      {/* HEADER */}
+      <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => router.push("/dashboard")} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={18} color={C.purple} />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.screenLabel}>OVERVIEW</Text>
-            <Text style={styles.screenTitle}>Subscriptions</Text>
-          </View>
+        <View>
+          <Text style={styles.title}>Subscriptions</Text>
+          <Text style={styles.subtitle}>Manage member subscriptions</Text>
         </View>
-        <TouchableOpacity onPress={() => setShowModal(true)} style={styles.addFab} activeOpacity={0.85}>
-          <Ionicons name="add" size={22} color={C.white} />
-        </TouchableOpacity>
-      </View>
-
-      {/* STATS */}
-      <View style={styles.statsRow}>
-        <StatCard
-          icon={<MaterialCommunityIcons name="currency-inr" size={16} color={C.purple} />}
-          value={`₹${stats.revenue.toLocaleString("en-IN")}`}
-          label="Revenue"
-          bg={C.purpleLight}
-          valueColor={C.purple}
-        />
-        <StatCard
-          icon={<Ionicons name="people-outline" size={16} color={C.green} />}
-          value={String(stats.active)}
-          label="Active"
-          bg={C.greenLight}
-          valueColor={C.green}
-        />
-        <StatCard
-          icon={<Ionicons name="time-outline" size={16} color={C.amber} />}
-          value={String(stats.expired)}
-          label="Expired"
-          bg={C.amberLight}
-          valueColor={C.amber}
-        />
-        <StatCard
-          icon={<Ionicons name="close-circle-outline" size={16} color={C.red} />}
-          value={String(stats.cancelled)}
-          label="Cancelled"
-          bg={C.redLight}
-          valueColor={C.red}
-        />
-      </View>
-
-      {/* SEARCH */}
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={16} color={C.textLight} style={{ marginRight: 8 }} />
-        <TextInput
-          placeholder="Search name, phone or code…"
-          placeholderTextColor={C.textLight}
-          value={search}
-          onChangeText={setSearch}
-          style={styles.searchInput}
-          autoCapitalize="none"
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close-circle" size={16} color={C.textLight} />
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.printerBtn}
+            onPress={() => router.push("/printer")}
+          >
+            <Feather name="printer" size={15} color="#3C3489" />
           </TouchableOpacity>
-        )}
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => setCreateModalVisible(true)}
+          >
+            <Feather name="plus" size={15} color="#3C3489" />
+            <Text style={styles.addBtnText}>New</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* FILTER TABS */}
-      <View style={styles.filterRow}>
-        {FILTERS.map((f) => {
-          const active = filter === f.key;
-          const count  = filterCounts[f.key];
-          return (
-            <TouchableOpacity
-              key={f.key}
-              onPress={() => setFilter(f.key)}
-              style={[styles.filterTab, active && { backgroundColor: f.color, borderColor: f.color }]}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.filterText, active && styles.filterTextActive]}>
-                {f.label}
-              </Text>
-              <View style={[styles.filterBadge, active && { backgroundColor: "rgba(255,255,255,0.25)" }]}>
-                <Text style={[styles.filterBadgeText, active && { color: C.white }]}>{count}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* LIST */}
       <FlatList
-        data={filteredData}
+        data={subscriptions}
         keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <SubscriptionCard
-            item={item}
-            onRenew={(id) => renewMutation.mutate({ id })}
-            onCancel={(id) => cancelMutation.mutate(id)}
-            isRenewing={renewMutation.isPending}
-            isCancelling={cancelMutation.isPending}
-          />
-        )}
-        contentContainerStyle={{ paddingBottom: 100, paddingTop: 4 }}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={C.purple} />}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="receipt-outline" size={32} color={C.purple} />
-            </View>
-            <Text style={styles.emptyTitle}>No subscriptions found</Text>
-            <Text style={styles.emptySubtitle}>
-              {search ? `No results for "${search}"` : "Tap + to create your first subscription"}
-            </Text>
-            {!search && (
-              <TouchableOpacity onPress={() => setShowModal(true)} style={styles.emptyBtn} activeOpacity={0.8}>
-                <Ionicons name="add" size={14} color={C.white} />
-                <Text style={styles.emptyBtnText}>New Subscription</Text>
-              </TouchableOpacity>
-            )}
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No subscriptions yet</Text>
           </View>
         }
       />
 
-      <SubscriptionModal
-        visible={showModal}
-        onClose={() => setShowModal(false)}
-        members={members || []}
-        plans={plans   || []}
-        onSubmit={handleCreate}
-        isLoading={createMutation.isPending}
+      <CreateSubscriptionModal
+        visible={createModalVisible}
+        onClose={() => setCreateModalVisible(false)}
+        onSubmit={(data) => {
+          createSubscription(data, {
+            onSuccess: (newSubscription) => {
+              setCreateModalVisible(false);
+              Alert.alert(
+                "Success",
+                "Subscription created successfully",
+                [
+                  { text: "OK" },
+                  {
+                    text: "Print Receipt",
+                    onPress: () => handlePrintSubscription(newSubscription as Subscription),
+                  },
+                ]
+              );
+            },
+            onError: (error: any) => {
+              Alert.alert(
+                "Error",
+                error?.response?.data?.message || "Failed to create subscription"
+              );
+            },
+          });
+        }}
+        plans={plans || []}
       />
-    </View>
-  );
-}
 
-function StatCard({ icon, value, label, bg, valueColor }: any) {
-  return (
-    <View style={[styles.statCard, { backgroundColor: bg }]}>
-      {icon}
-      <Text style={[styles.statValue, { color: valueColor }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <EditSubscriptionModal
+        visible={editModalVisible}
+        onClose={() => {
+          setEditModalVisible(false);
+          setSelectedSubscription(null);
+        }}
+        onSubmit={(data) => {
+          if (selectedSubscription) {
+            updateSubscription(
+              { id: selectedSubscription._id, payload: data },
+              {
+                onSuccess: () => {
+                  setEditModalVisible(false);
+                  setSelectedSubscription(null);
+                  Alert.alert("Success", "Subscription updated successfully");
+                },
+                onError: (error: any) => {
+                  Alert.alert(
+                    "Error",
+                    error?.response?.data?.message || "Failed to update subscription"
+                  );
+                },
+              }
+            );
+          }
+        }}
+        subscription={selectedSubscription}
+      />
+
+      <RenewSubscriptionModal
+        visible={renewModalVisible}
+        onClose={() => {
+          setRenewModalVisible(false);
+          setSelectedSubscription(null);
+        }}
+        onSubmit={(data) => {
+          if (selectedSubscription) {
+            renewSubscription(
+              { id: selectedSubscription._id, payload: data },
+              {
+                onSuccess: (renewedSubscription) => {
+                  setRenewModalVisible(false);
+                  const subToUse = renewedSubscription || selectedSubscription;
+                  setSelectedSubscription(null);
+                  Alert.alert(
+                    "Success",
+                    "Subscription renewed successfully",
+                    [
+                      { text: "OK" },
+                      {
+                        text: "Print Receipt",
+                        onPress: () => handlePrintRenewal(subToUse as Subscription),
+                      },
+                    ]
+                  );
+                },
+                onError: (error: any) => {
+                  Alert.alert(
+                    "Error",
+                    error?.response?.data?.message || "Failed to renew subscription"
+                  );
+                },
+              }
+            );
+          }
+        }}
+        subscription={selectedSubscription}
+      />
+
+      <CancelConfirmationModal
+        visible={cancelModalVisible}
+        onClose={() => {
+          setCancelModalVisible(false);
+          setSelectedSubscription(null);
+        }}
+        onConfirm={confirmCancel}
+        subscription={selectedSubscription}
+        isLoading={isCancelling}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: C.offWhite,
-    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) : 52,
-    paddingHorizontal: 18,
+  container: { flex: 1, backgroundColor: "#F9F7FF" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
   },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: C.offWhite },
-  loadingText: { marginTop: 12, fontSize: 14, color: C.textMid },
-
-  header:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 12,
-    backgroundColor: C.purpleLight, alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: C.border,
+  title: { fontSize: 24, fontWeight: "600", color: "#1E1B4B", letterSpacing: -0.3 },
+  subtitle: { fontSize: 13, color: "#6B6B8A", marginTop: 3 },
+  headerButtons: {
+    flexDirection: "row",
+    gap: 8,
   },
-  screenLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 2, color: C.purple, marginBottom: 2 },
-  screenTitle: { fontSize: 24, fontWeight: "800", color: C.text, letterSpacing: -0.5 },
-  addFab: {
-    width: 46, height: 46, borderRadius: 14, backgroundColor: C.purple,
-    alignItems: "center", justifyContent: "center",
-    shadowColor: C.purple, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 10, elevation: 8,
+  printerBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C4BAF7",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-
-  statsRow:   { flexDirection: "row", gap: 8, marginBottom: 16 },
-  statCard:   { flex: 1, borderRadius: 12, padding: 10, alignItems: "center", gap: 3 },
-  statValue:  { fontSize: 15, fontWeight: "800", letterSpacing: -0.3 },
-  statLabel:  { fontSize: 9, color: C.textMid, fontWeight: "600", letterSpacing: 0.3 },
-
-  searchWrap: {
-    flexDirection: "row", alignItems: "center", backgroundColor: C.white,
-    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11,
-    marginBottom: 12, borderWidth: 1, borderColor: C.border,
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#C4BAF7",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  searchInput: { flex: 1, fontSize: 14, color: C.text },
-
-  filterRow:        { flexDirection: "row", gap: 6, marginBottom: 14 },
-  filterTab: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 5, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: C.white, borderWidth: 1, borderColor: C.border,
-  },
-  filterText:        { fontSize: 11, color: C.textMid, fontWeight: "700" },
-  filterTextActive:  { color: C.white },
-  filterBadge:       { backgroundColor: C.purpleLight, borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1 },
-  filterBadgeText:   { fontSize: 10, fontWeight: "800", color: C.purple },
-
-  emptyWrap:    { alignItems: "center", paddingTop: 72, gap: 10 },
-  emptyIcon:    { width: 72, height: 72, borderRadius: 22, backgroundColor: C.purpleLight, alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  emptyTitle:   { fontSize: 17, fontWeight: "700", color: C.text },
-  emptySubtitle:{ fontSize: 13, color: C.textMid, textAlign: "center", paddingHorizontal: 32 },
-  emptyBtn:     { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.purple, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, marginTop: 8 },
-  emptyBtnText: { color: C.white, fontWeight: "700", fontSize: 13 },
+  addBtnText: { color: "#3C3489", fontWeight: "600", fontSize: 14 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  emptyContainer: { marginTop: 100, alignItems: "center" },
+  emptyText: { color: "#9B99B0", fontSize: 15 },
 });

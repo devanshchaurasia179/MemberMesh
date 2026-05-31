@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSubscription,
+  updateSubscription,
   cancelSubscription,
   getSubscriptions,
   renewSubscription,
   RenewSubscriptionPayload,
+  UpdateSubscriptionPayload,
 } from "../constants/subscription.api";
 
 const QUERY_KEY = ["subscriptions"];
@@ -16,6 +18,15 @@ export const useCreateSubscription = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createSubscription,
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+  });
+};
+
+export const useUpdateSubscription = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateSubscriptionPayload }) =>
+      updateSubscription(id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
   });
 };
@@ -33,6 +44,11 @@ export const useCancelSubscription = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: cancelSubscription,
-    onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+    onError: (error: any) => {
+      console.error("Cancel subscription error:", error);
+    },
   });
 };
