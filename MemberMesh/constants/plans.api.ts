@@ -1,10 +1,12 @@
 import { api } from "./api";
 import { MembershipPlan, CreatePlanPayload } from "../types/plan";
 
+const BASE = "/api/membership";
+
 /* ================= CREATE PLAN ================= */
 export const createPlanApi = async (data: CreatePlanPayload) => {
   const res = await api.post<{ success: boolean; plan: MembershipPlan }>(
-    "/plans",
+    `${BASE}/plans`,
     data
   );
   return res.data.plan;
@@ -13,7 +15,7 @@ export const createPlanApi = async (data: CreatePlanPayload) => {
 /* ================= GET ALL PLANS ================= */
 export const getAllPlansApi = async (onlyActive?: boolean) => {
   const res = await api.get<{ success: boolean; plans: MembershipPlan[] }>(
-    "/plans",
+    `${BASE}/plans`,
     {
       params: { onlyActive },
     }
@@ -27,7 +29,7 @@ export const updatePlanApi = async (
   data: Partial<CreatePlanPayload>
 ) => {
   const res = await api.put<{ success: boolean; plan: MembershipPlan }>(
-    `/plans/${id}`,
+    `${BASE}/plans/${id}`,
     data
   );
   return res.data.plan;
@@ -36,13 +38,13 @@ export const updatePlanApi = async (
 /* ================= TOGGLE STATUS ================= */
 export const togglePlanStatusApi = async (id: string) => {
   const res = await api.patch<{ success: boolean; isActive: boolean }>(
-    `/plans/${id}/toggle`
+    `${BASE}/plans/${id}/toggle`
   );
   return res.data;
 };
 
 /* ================= DELETE ================= */
 export const deletePlanApi = async (id: string) => {
-  const res = await api.delete<{ success: boolean }>(`/plans/${id}`);
+  const res = await api.delete<{ success: boolean }>(`${BASE}/plans/${id}`);
   return res.data;
 };

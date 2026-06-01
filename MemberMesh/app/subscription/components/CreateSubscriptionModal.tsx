@@ -21,6 +21,7 @@ export default function CreateSubscriptionModal({
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [duration, setDuration] = useState("");
   const [billingCycle, setBillingCycle] = useState<"DAYS" | "MONTH" | "YEAR">("MONTH");
@@ -41,6 +42,7 @@ export default function CreateSubscriptionModal({
       name: name.trim(),
       mobile: mobile.trim() || undefined,
       address: address.trim() || undefined,
+      code: code.trim() || undefined,
       planId: selectedPlanId,
     };
 
@@ -54,6 +56,7 @@ export default function CreateSubscriptionModal({
     setName("");
     setMobile("");
     setAddress("");
+    setCode("");
     setSelectedPlanId("");
     setDuration("");
     setBillingCycle("MONTH");
@@ -78,6 +81,16 @@ export default function CreateSubscriptionModal({
               onChangeText={setName}
               placeholder="Enter member name"
               placeholderTextColor="#9CA3AF"
+            />
+
+            <Text style={styles.inputLabel}>Subscription Code (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={code}
+              onChangeText={(t) => setCode(t.toUpperCase())}
+              placeholder="Auto-generated if left blank"
+              placeholderTextColor="#9CA3AF"
+              autoCapitalize="characters"
             />
 
             <Text style={styles.inputLabel}>Mobile</Text>
@@ -200,38 +213,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: "#e2e8f0",
   },
-  modalTitle: { fontSize: 18, fontWeight: "600", color: "#1E1B4B" },
+  modalTitle: { fontSize: 18, fontWeight: "600", color: "#0f172a" },
   modalBody: { padding: 20, maxHeight: 500 },
   modalFooter: {
     flexDirection: "row",
     gap: 12,
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: "#e2e8f0",
   },
   inputLabel: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#374151",
+    color: "#475569",
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#cbd5e1",
     borderRadius: 10,
     padding: 12,
     fontSize: 14,
-    color: "#1F2937",
-    backgroundColor: "#F9FAFB",
+    color: "#0f172a",
+    backgroundColor: "#f8fafc",
   },
   textArea: { height: 80, textAlignVertical: "top" },
   sectionTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#1E1B4B",
+    color: "#0f172a",
     marginTop: 20,
     marginBottom: 8,
   },
@@ -242,48 +255,48 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 14,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderColor: "#e2e8f0",
     borderRadius: 10,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#f8fafc",
   },
   planOptionSelected: {
-    borderColor: "#7F77DD",
-    backgroundColor: "#F5F3FF",
+    borderColor: "#3b82f6",
+    backgroundColor: "#DBEAFE",
   },
-  planOptionText: { fontSize: 14, fontWeight: "500", color: "#6B7280" },
-  planOptionTextSelected: { color: "#534AB7" },
-  planOptionPrice: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
-  planOptionPriceSelected: { color: "#534AB7" },
+  planOptionText: { fontSize: 14, fontWeight: "500", color: "#64748b" },
+  planOptionTextSelected: { color: "#1e3a8a" },
+  planOptionPrice: { fontSize: 14, fontWeight: "600", color: "#64748b" },
+  planOptionPriceSelected: { color: "#1e3a8a" },
   cycleSelector: { flexDirection: "row", gap: 8 },
   cycleOption: {
     flex: 1,
     padding: 12,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderColor: "#e2e8f0",
     borderRadius: 10,
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#f8fafc",
   },
   cycleOptionSelected: {
-    borderColor: "#7F77DD",
-    backgroundColor: "#F5F3FF",
+    borderColor: "#3b82f6",
+    backgroundColor: "#DBEAFE",
   },
-  cycleOptionText: { fontSize: 13, fontWeight: "500", color: "#6B7280" },
-  cycleOptionTextSelected: { color: "#534AB7" },
+  cycleOptionText: { fontSize: 13, fontWeight: "500", color: "#64748b" },
+  cycleOptionTextSelected: { color: "#1e3a8a" },
   cancelModalBtn: {
     flex: 1,
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#f1f5f9",
   },
-  cancelModalBtnText: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
+  cancelModalBtnText: { fontSize: 14, fontWeight: "600", color: "#64748b" },
   submitBtn: {
     flex: 1,
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
-    backgroundColor: "#7F77DD",
+    backgroundColor: "#1e3a8a",
   },
   submitBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
 });

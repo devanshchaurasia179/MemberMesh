@@ -1,5 +1,29 @@
 import Subscription from "../models/Subscription.js";
 import MembershipPlan from "../models/MembershipPlan.js";
+import SubscriptionHistory from "../models/SubscriptionHistory.js";
+
+/* ================================================================
+   HELPER: LOG HISTORY EVENT
+================================================================ */
+async function logHistory(subscription, event, note = null) {
+  try {
+    await SubscriptionHistory.create({
+      subscription:     subscription._id,
+      business:         subscription.business,
+      event,
+      startDate:        subscription.startDate,
+      expiryDate:       subscription.expiryDate,
+      amountPaid:       subscription.amountPaid,
+      durationUsed:     subscription.durationUsed,
+      billingCycleUsed: subscription.billingCycleUsed,
+      status:           subscription.status,
+      note,
+    });
+  } catch (err) {
+    // History logging is non-critical — never let it break main flow
+    console.error("logHistory failed:", err.message);
+  }
+}
 
 /* ================================================================
    HELPER: CALCULATE EXPIRY DATE
@@ -139,6 +163,8 @@ export async function createSubscription(req, res) {
       status:        "ACTIVE",
       paymentStatus: "PAID",
     });
+
+    await logHistory(subscription, "CREATE", `Subscription created — ${finalDuration} ${finalBillingCycle}`);
 
     return res.status(201).json({ success: true, subscription });
 
@@ -293,6 +319,8 @@ export async function renewSubscription(req, res) {
 
     await subscription.save();
 
+    await logHistory(subscription, "RENEW", `Renewed for ${finalDuration} ${finalBillingCycle}`);
+
     return res.status(200).json({ success: true, subscription });
 
   } catch (err) {
@@ -318,11 +346,39 @@ export async function cancelSubscription(req, res) {
 
     await subscription.save();
 
+    await logHistory(subscription, "CANCEL", "Subscription cancelled");
+
     return res.status(200).json({ success: true, message: "Subscription cancelled", subscription });
 
   } catch (err) {
     console.error("cancelSubscription:", err);
     return res.status(500).json({ message: "Cancel failed" });
+  }
+}
+
+/* ================================================================
+   GET SUBSCRIPTION HISTORY
+   Returns all lifecycle events for a given subscription,
+   newest first.  Scoped to the authed business for security.
+================================================================ */
+export async function getSubscriptionHistory(req, res) {
+  try {
+    const { id }     = req.params;
+    const businessId = req.user.id;
+
+    // Verify the subscription belongs to this business
+    const subscription = await Subscription.findOne({ _id: id, business: businessId });
+    if (!subscription) return res.status(404).json({ message: "Subscription not found" });
+
+    const history = await SubscriptionHistory.find({ subscription: id })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({ success: true, history });
+
+  } catch (err) {
+    console.error("getSubscriptionHistory:", err);
+    return res.status(500).json({ message: "Failed to fetch history" });
   }
 }
 

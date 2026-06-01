@@ -5,6 +5,7 @@ import {
   cancelSubscription,
   getSubscriptions,
   renewSubscription,
+  getSubscriptionHistory,
   RenewSubscriptionPayload,
   UpdateSubscriptionPayload,
 } from "../constants/subscription.api";
@@ -52,3 +53,10 @@ export const useCancelSubscription = () => {
     },
   });
 };
+
+export const useSubscriptionHistory = (id: string) =>
+  useQuery({
+    queryKey: ["subscriptionHistory", id],
+    queryFn: () => getSubscriptionHistory(id),
+    enabled: !!id,
+  });

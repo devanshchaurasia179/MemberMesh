@@ -22,12 +22,14 @@ export default function EditSubscriptionModal({
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     if (subscription) {
       setName(subscription.memberSnapshot?.name || "");
       setMobile(subscription.memberSnapshot?.mobile || "");
       setAddress(subscription.memberSnapshot?.address || "");
+      setCode(subscription.code || "");
     }
   }, [subscription]);
 
@@ -36,11 +38,16 @@ export default function EditSubscriptionModal({
       Alert.alert("Error", "Member name is required");
       return;
     }
+    if (!code.trim()) {
+      Alert.alert("Error", "Subscription code cannot be empty");
+      return;
+    }
 
     onSubmit({
       name: name.trim(),
       mobile: mobile.trim() || undefined,
       address: address.trim() || undefined,
+      code: code.trim(),
     });
   };
 
@@ -63,6 +70,16 @@ export default function EditSubscriptionModal({
               onChangeText={setName}
               placeholder="Enter member name"
               placeholderTextColor="#9CA3AF"
+            />
+
+            <Text style={styles.inputLabel}>Subscription Code *</Text>
+            <TextInput
+              style={styles.input}
+              value={code}
+              onChangeText={(t) => setCode(t.toUpperCase())}
+              placeholder="e.g. GOLD01"
+              placeholderTextColor="#9CA3AF"
+              autoCapitalize="characters"
             />
 
             <Text style={styles.inputLabel}>Mobile</Text>
@@ -119,32 +136,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: "#e2e8f0",
   },
-  modalTitle: { fontSize: 18, fontWeight: "600", color: "#1E1B4B" },
+  modalTitle: { fontSize: 18, fontWeight: "600", color: "#0f172a" },
   modalBody: { padding: 20, maxHeight: 500 },
   modalFooter: {
     flexDirection: "row",
     gap: 12,
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: "#e2e8f0",
   },
   inputLabel: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#374151",
+    color: "#475569",
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: "#cbd5e1",
     borderRadius: 10,
     padding: 12,
     fontSize: 14,
-    color: "#1F2937",
-    backgroundColor: "#F9FAFB",
+    color: "#0f172a",
+    backgroundColor: "#f8fafc",
   },
   textArea: { height: 80, textAlignVertical: "top" },
   cancelModalBtn: {
@@ -152,15 +169,15 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#f1f5f9",
   },
-  cancelModalBtnText: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
+  cancelModalBtnText: { fontSize: 14, fontWeight: "600", color: "#64748b" },
   submitBtn: {
     flex: 1,
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
-    backgroundColor: "#7F77DD",
+    backgroundColor: "#1e3a8a",
   },
   submitBtnText: { fontSize: 14, fontWeight: "600", color: "#fff" },
 });

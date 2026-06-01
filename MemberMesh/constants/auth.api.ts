@@ -1,14 +1,16 @@
 import { api } from "./api";
 
+const BASE = "/api/membership";
+
 export const sendOtpApi = (mobileNumber: string) =>
-  api.post("/auth/send-otp", { mobileNumber });
+  api.post(`${BASE}/auth/send-otp`, { mobileNumber });
 
 export const verifyOtpApi = (mobileNumber: string, otp: string) =>
-  api.post("/auth/verify-otp", { mobileNumber, otp });
+  api.post(`${BASE}/auth/verify-otp`, { mobileNumber, otp });
 
-export const getMeApi = () => api.get("/auth/me");
+export const getMeApi = () => api.get(`${BASE}/auth/me`);
 
-export const logoutApi = () => api.post("/auth/logout");
+export const logoutApi = () => api.post(`${BASE}/auth/logout`);
 
 export const updateProfileApi = (data: {
   ownerName?: string;
@@ -16,4 +18,4 @@ export const updateProfileApi = (data: {
   gstNumber?: string;
   upiId?: string;
   location?: string;
-}) => api.put("/auth/profile", data);
+}) => api.put(`${BASE}/auth/profile`, data);

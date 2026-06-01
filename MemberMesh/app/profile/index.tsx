@@ -5,16 +5,34 @@ import {
   ScrollView,
   TouchableOpacity,
   Text,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   TextInput,
+  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { useAuth } from "../../providers/AuthProvider";
 import { logoutApi, updateProfileApi } from "../../constants/auth.api";
 import FooterBar from "../components/FooterBar";
+
+// ─── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#EFF6FF",
+  surface: "#FFFFFF",
+  brand: "#1e3a8a",
+  brandLight: "#3b82f6",
+  brandXLight: "#DBEAFE",
+  text: "#0f172a",
+  textMid: "#475569",
+  textSoft: "#94a3b8",
+  border: "#e2e8f0",
+  danger: "#ef4444",
+  dangerLight: "#fee2e2",
+  success: "#10b981",
+  successLight: "#d1fae5",
+};
 
 export default function Profile() {
   const { user, setUser, loading } = useAuth();
@@ -30,7 +48,6 @@ export default function Profile() {
     location: "",
   });
 
-  // Initialize form data when user data loads
   useEffect(() => {
     if (user) {
       setFormData({
@@ -48,7 +65,6 @@ export default function Profile() {
       Alert.alert("Error", "Owner Name and Business Name are required");
       return;
     }
-
     setIsSaving(true);
     try {
       const response = await updateProfileApi(formData);
@@ -63,7 +79,6 @@ export default function Profile() {
   };
 
   const handleCancel = () => {
-    // Reset form data to original user data
     if (user) {
       setFormData({
         ownerName: user?.ownerName || "",
@@ -77,39 +92,33 @@ export default function Profile() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        { text: "Cancel", onPress: () => {}, style: "cancel" },
-        {
-          text: "Logout",
-          onPress: async () => {
-            setIsLoggingOut(true);
-            try {
-              await logoutApi();
-              setUser(null);
-              router.replace("/login");
-            } catch (error) {
-              console.error("Logout failed", error);
-              // Fallback to clear local state if API fails
-              setUser(null);
-              router.replace("/login");
-            } finally {
-              setIsLoggingOut(false);
-            }
-          },
-          style: "destructive",
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          setIsLoggingOut(true);
+          try {
+            await logoutApi();
+            setUser(null);
+            router.replace("/login");
+          } catch {
+            setUser(null);
+            router.replace("/login");
+          } finally {
+            setIsLoggingOut(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#aa3e36" />
-      </View>
+      <SafeAreaView style={styles.loadingContainer} edges={["top", "left", "right"]}>
+        <ActivityIndicator size="large" color={C.brand} />
+      </SafeAreaView>
     );
   }
 
@@ -120,7 +129,7 @@ export default function Profile() {
       key: "ownerName",
       value: user?.ownerName || "N/A",
       icon: "user",
-      color: "#3b82f6",
+      color: C.brand,
     },
     {
       id: 2,
@@ -153,7 +162,7 @@ export default function Profile() {
       key: "upiId",
       value: user?.upiId || "N/A",
       icon: "credit-card",
-      color: "#10b981",
+      color: C.success,
     },
     {
       id: 6,
@@ -161,31 +170,31 @@ export default function Profile() {
       key: "location",
       value: user?.location || "N/A",
       icon: "map-pin",
-      color: "#ef4444",
+      color: C.danger,
     },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#000" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Profile</Text>
-            <View style={{ width: 24 }} />
-          </View>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.75}>
+            <Feather name="arrow-left" size={16} color={C.brand} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={{ width: 36 }} />
         </View>
 
-        {/* Profile Avatar Section */}
+        {/* ── Avatar Section ── */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarCircle}>
-            <Feather name="user" size={40} color="#5b643e" />
+            <Feather name="user" size={36} color={C.brand} />
           </View>
           <Text style={styles.userName}>
             {user?.ownerName?.trim() || "User"}
@@ -195,36 +204,28 @@ export default function Profile() {
           </Text>
         </View>
 
-        {/* Profile Details */}
+        {/* ── Profile Details ── */}
         <View style={styles.detailsSection}>
           <View style={styles.detailsHeader}>
             <Text style={styles.sectionTitle}>Business Information</Text>
             {!isEditMode && (
-              <TouchableOpacity
-                onPress={() => setIsEditMode(true)}
-                style={styles.editButton}
-              >
-                <MaterialCommunityIcons name="pencil" size={18} color="#3b82f6" />
+              <TouchableOpacity onPress={() => setIsEditMode(true)} style={styles.editButton}>
+                <Feather name="edit-2" size={15} color={C.brand} />
               </TouchableOpacity>
             )}
           </View>
 
           {isEditMode ? (
-            // Edit Mode - Show Input Fields
             <>
               {profileData.map((item) => (
                 <View key={item.id} style={styles.editCard}>
-                  <View style={[styles.iconContainer, { backgroundColor: item.color + "20" }]}>
-                    <Feather name={item.icon as any} size={20} color={item.color} />
+                  <View style={[styles.iconContainer, { backgroundColor: item.color + "18" }]}>
+                    <Feather name={item.icon as any} size={18} color={item.color} />
                   </View>
-
                   <View style={styles.editFieldContainer}>
                     <Text style={styles.detailLabel}>{item.label}</Text>
                     <TextInput
-                      style={[
-                        styles.textInput,
-                        item.disabled && styles.disabledInput,
-                      ]}
+                      style={[styles.textInput, item.disabled && styles.disabledInput]}
                       placeholder={`Enter ${item.label.toLowerCase()}`}
                       value={
                         item.key === "mobileNumber"
@@ -233,20 +234,16 @@ export default function Profile() {
                       }
                       onChangeText={(text) => {
                         if (item.key !== "mobileNumber") {
-                          setFormData((prev) => ({
-                            ...prev,
-                            [item.key]: text,
-                          }));
+                          setFormData((prev) => ({ ...prev, [item.key]: text }));
                         }
                       }}
                       editable={!item.disabled}
-                      placeholderTextColor="#d1d5db"
+                      placeholderTextColor={C.textSoft}
                     />
                   </View>
                 </View>
               ))}
 
-              {/* Save and Cancel Buttons */}
               <View style={styles.buttonContainer}>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.cancelBtn]}
@@ -255,7 +252,6 @@ export default function Profile() {
                 >
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.saveBtn]}
                   onPress={handleSave}
@@ -270,84 +266,54 @@ export default function Profile() {
               </View>
             </>
           ) : (
-            // View Mode - Show Cards
             <>
               {profileData.map((item) => (
                 <View key={item.id} style={styles.detailCard}>
-                  <View
-                    style={[
-                      styles.iconContainer,
-                      { backgroundColor: item.color + "20" },
-                    ]}
-                  >
-                    <Feather
-                      name={item.icon as any}
-                      size={20}
-                      color={item.color}
-                    />
+                  <View style={[styles.iconContainer, { backgroundColor: item.color + "18" }]}>
+                    <Feather name={item.icon as any} size={18} color={item.color} />
                   </View>
-
                   <View style={styles.detailContent}>
                     <Text style={styles.detailLabel}>{item.label}</Text>
                     <Text style={styles.detailValue}>{item.value}</Text>
                   </View>
-
-                  <Feather name="chevron-right" size={20} color="#d1d5db" />
+                  <Feather name="chevron-right" size={18} color={C.border} />
                 </View>
               ))}
             </>
           )}
         </View>
 
-        {/* Account Actions */}
+        {/* ── Account Actions ── */}
         {!isEditMode && (
           <View style={styles.actionsSection}>
             <Text style={styles.sectionTitle}>Account</Text>
-
-            {/* Logout Button */}
             <TouchableOpacity
-              style={[styles.actionButton, styles.logoutButton]}
+              style={styles.logoutButton}
               onPress={handleLogout}
               disabled={isLoggingOut}
+              activeOpacity={0.75}
             >
-              <View
-                style={[
-                  styles.actionIconContainer,
-                  { backgroundColor: "#fee2e2" },
-                ]}
-              >
+              <View style={[styles.iconContainer, { backgroundColor: C.dangerLight }]}>
                 {isLoggingOut ? (
-                  <ActivityIndicator size="small" color="#ef4444" />
+                  <ActivityIndicator size="small" color={C.danger} />
                 ) : (
-                  <MaterialCommunityIcons
-                    name="logout"
-                    size={18}
-                    color="#ef4444"
-                  />
+                  <MaterialCommunityIcons name="logout" size={18} color={C.danger} />
                 )}
               </View>
-              <View style={styles.actionContent}>
-                <Text style={[styles.actionLabel, { color: "#ef4444" }]}>
-                  {isLoggingOut ? "Logging out..." : "Logout"}
+              <View style={styles.detailContent}>
+                <Text style={[styles.detailValue, { color: C.danger }]}>
+                  {isLoggingOut ? "Logging out…" : "Logout"}
                 </Text>
-                <Text style={styles.actionSubtitle}>
-                  Sign out from your account
-                </Text>
+                <Text style={styles.detailLabel}>Sign out from your account</Text>
               </View>
-              <Feather
-                name="chevron-right"
-                size={20}
-                color={isLoggingOut ? "#d1d5db" : "#ef4444"}
-              />
+              <Feather name="chevron-right" size={18} color={isLoggingOut ? C.border : C.danger} />
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Footer Spacing */}
-        <View style={styles.footerSpacing} />
+        <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* Footer Bar */}
       <FooterBar />
     </SafeAreaView>
   );
@@ -356,7 +322,7 @@ export default function Profile() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: C.bg,
   },
   scrollContent: {
     paddingBottom: 100,
@@ -365,50 +331,67 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f9fafb",
+    backgroundColor: C.bg,
   },
+
+  // ── Header ────────────────────────────────────────────────────────────────
   header: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  headerContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: C.bg,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: C.brandXLight,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: C.border,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#1f2937",
+    fontWeight: "700",
+    color: C.text,
+    letterSpacing: -0.3,
   },
+
+  // ── Avatar ────────────────────────────────────────────────────────────────
   avatarSection: {
     alignItems: "center",
-    paddingVertical: 30,
+    paddingVertical: 24,
     paddingHorizontal: 16,
   },
   avatarCircle: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#fef3c7",
+    backgroundColor: C.brandXLight,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 14,
+    borderWidth: 2,
+    borderColor: C.brandLight + "40",
   },
   userName: {
     fontSize: 20,
-    fontWeight: "700",
-    color: "#1f2937",
+    fontWeight: "800",
+    color: C.text,
     marginBottom: 4,
+    letterSpacing: -0.4,
   },
   businessNameSubtitle: {
-    fontSize: 14,
-    color: "#6b7280",
+    fontSize: 13,
+    color: C.textSoft,
     fontWeight: "500",
   },
+
+  // ── Details ───────────────────────────────────────────────────────────────
   detailsSection: {
     paddingHorizontal: 16,
     marginBottom: 24,
@@ -418,54 +401,63 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
-    paddingHorizontal: 4,
   },
   editButton: {
-    padding: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: C.brandXLight,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: C.border,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1f2937",
-    marginBottom: 12,
-    marginLeft: 4,
+    color: C.text,
+    letterSpacing: -0.2,
   },
   detailCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    backgroundColor: C.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 13,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: "rgba(30, 58, 138, 0.08)",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
     elevation: 2,
   },
   editCard: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    backgroundColor: C.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 13,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: "rgba(30, 58, 138, 0.08)",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
     elevation: 2,
   },
   iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 11,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
-    marginTop: 4,
+    flexShrink: 0,
   },
   detailContent: {
     flex: 1,
@@ -473,48 +465,57 @@ const styles = StyleSheet.create({
   editFieldContainer: {
     flex: 1,
   },
-  textInput: {
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#1f2937",
-    fontWeight: "500",
-    marginTop: 6,
-  },
-  disabledInput: {
-    backgroundColor: "#f3f4f6",
-    color: "#9ca3af",
-  },
   detailLabel: {
-    fontSize: 12,
-    color: "#9ca3af",
+    fontSize: 11,
+    color: C.textSoft,
     fontWeight: "600",
-    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 3,
   },
   detailValue: {
-    fontSize: 15,
-    color: "#1f2937",
+    fontSize: 14,
+    color: C.text,
     fontWeight: "600",
   },
+  textInput: {
+    borderWidth: 1.5,
+    borderColor: C.border,
+    borderRadius: 9,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    fontSize: 14,
+    color: C.text,
+    fontWeight: "500",
+    marginTop: 4,
+    backgroundColor: C.bg,
+  },
+  disabledInput: {
+    backgroundColor: "#f1f5f9",
+    color: C.textSoft,
+  },
+
+  // ── Buttons ───────────────────────────────────────────────────────────────
   buttonContainer: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 20,
-    marginBottom: 10,
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 8,
   },
   actionBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 13,
+    borderRadius: 11,
     justifyContent: "center",
     alignItems: "center",
-    flexDirection: "row",
   },
   saveBtn: {
-    backgroundColor: "#10b981",
+    backgroundColor: C.brand,
+    shadowColor: C.brand,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveBtnText: {
     color: "#fff",
@@ -522,62 +523,34 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   cancelBtn: {
-    backgroundColor: "#f3f4f6",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    backgroundColor: C.surface,
+    borderWidth: 1.5,
+    borderColor: C.border,
   },
   cancelBtnText: {
-    color: "#6b7280",
+    color: C.textMid,
     fontSize: 14,
     fontWeight: "700",
   },
+
+  // ── Account ───────────────────────────────────────────────────────────────
   actionsSection: {
     paddingHorizontal: 16,
     marginBottom: 24,
   },
-  actionButton: {
+  logoutButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    backgroundColor: C.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.dangerLight,
+    shadowColor: "rgba(239, 68, 68, 0.08)",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
     elevation: 2,
-  },
-  logoutButton: {
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    marginTop: 6,
-  },
-  actionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-    backgroundColor: "#eff6ff",
-  },
-  actionContent: {
-    flex: 1,
-  },
-  actionLabel: {
-    fontSize: 15,
-    color: "#1f2937",
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  actionSubtitle: {
-    fontSize: 12,
-    color: "#9ca3af",
-    fontWeight: "500",
-  },
-  footerSpacing: {
-    height: 20,
   },
 });

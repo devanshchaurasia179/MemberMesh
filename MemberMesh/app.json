@@ -54,7 +54,7 @@
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 21
+            "minSdkVersion": 24
           }
         }
       ]
@@ -62,6 +62,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d7cb41b3-0174-4ab4-867d-edad019fd6da"
+      }
+    },
+    "owner": "dc24106031"
   }
 }

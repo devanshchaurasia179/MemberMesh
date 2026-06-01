@@ -13,36 +13,81 @@ try {
 }
 
 /**
- * Helper to convert long unit names to shorthand
+ * Helper to convert billing cycle values to readable full words
  */
-const getUnitShorthand = (unit: string): string => {
+const getUnitLabel = (unit: string): string => {
   const lowerUnit = (unit || "").toLowerCase().trim();
   switch (lowerUnit) {
+    case "month":
+    case "months":
+      return "Month(s)";
+    case "year":
+    case "years":
+      return "Year(s)";
+    case "days":
+    case "day":
+      return "Day(s)";
+    case "lifetime":
+      return "Lifetime";
+    // legacy / other values
     case "liter":
     case "liters":
     case "litre":
     case "litres":
-      return "ltr";
+      return "Litre(s)";
     case "dozen":
     case "dozens":
-      return "dzn";
+      return "Dozen(s)";
     case "kilogram":
     case "kilograms":
     case "kg":
-      return "kg";
+      return "Kg";
     case "piece":
     case "pieces":
-      return "pcs";
-    case "month":
-    case "months":
-      return "mo";
-    case "year":
-    case "years":
-      return "yr";
+      return "Piece(s)";
     default:
-      return lowerUnit || "unit";
+      return lowerUnit || "Unit";
   }
 };
+
+/**
+ * Format a date string safely
+ */
+const formatDate = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "N/A";
+  try {
+    return new Date(dateStr).toLocaleDateString("en-IN");
+  } catch {
+    return "N/A";
+  }
+};
+
+/**
+ * Format a time string safely
+ */
+const formatTime = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return "";
+  try {
+    return new Date(dateStr)
+      .toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+      .replace(/\u202f/g, " ");
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Business info to print at the top of every receipt
+ */
+export interface BusinessInfo {
+  businessName?: string;
+  ownerName?: string;
+  mobileNumber?: string;
+}
 
 /**
  * Connect to a Bluetooth thermal printer
@@ -55,7 +100,7 @@ export const connectPrinter = async (
     Alert.alert("Not Available", "Bluetooth printer not available in Expo Go");
     throw new Error("Bluetooth printer not available");
   }
-  
+
   try {
     const isEnabled = await BluetoothManager.isBluetoothEnabled();
     if (!isEnabled) {
@@ -96,76 +141,119 @@ export const connectPrinter = async (
 };
 
 /**
+ * Print the business header block (shared by all receipts)
+ */
+const printBusinessHeader = async (business: BusinessInfo): Promise<void> => {
+  const businessName = business.businessName?.trim() || "My Business";
+  const ownerName = business.ownerName?.trim() || "";
+  const mobile = business.mobileNumber?.trim() || "";
+
+  await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+  await BluetoothEscposPrinter.printText(`${businessName}\n\r`, { bold: true, fontSize: 1 });
+  if (ownerName) {
+    await BluetoothEscposPrinter.printText(`${ownerName}\n\r`, {});
+  }
+  if (mobile) {
+    await BluetoothEscposPrinter.printText(`Ph: ${mobile}\n\r`, {});
+  }
+  await BluetoothEscposPrinter.printText("================================\n\r", {});
+};
+
+/**
  * Print subscription renewal receipt
  */
-export const printRenewalReceipt = async (subscription: any): Promise<void> => {
+export const printRenewalReceipt = async (
+  subscription: any,
+  business: BusinessInfo = {}
+): Promise<void> => {
   if (!BluetoothEscposPrinter) {
     Alert.alert("Not Available", "Bluetooth printer not available in Expo Go");
     throw new Error("Bluetooth printer not available");
   }
-  
+
   try {
-    // Extract subscription data
-    const memberName = subscription.memberId?.name || "Member";
-    const planName = subscription.planId?.name || "Plan";
-    const duration = subscription.planId?.duration || 1;
-    const durationType = subscription.planId?.durationType || "month";
-    const amount = subscription.amount || 0;
-    const startDate = new Date(subscription.startDate);
-    const endDate = new Date(subscription.endDate);
-    const renewedAt = new Date(subscription.updatedAt || Date.now());
+    // Extract subscription data using correct field names
+    const memberName =
+      subscription.memberSnapshot?.name ||
+      subscription.memberId?.name ||
+      "Unknown Member";
+
+    // subscription.plan may be a populated object or a plain ID string
+    const planName =
+      (typeof subscription.plan === "object" && subscription.plan?.name)
+        ? subscription.plan.name
+        : subscription.planName ||           // explicit override from caller
+          subscription.planId?.name ||
+          "Unknown Plan";
+
+    const duration =
+      subscription.durationUsed ||
+      (typeof subscription.plan === "object" && subscription.plan?.duration) ||
+      subscription.planId?.duration ||
+      1;
+
+    const durationType =
+      subscription.billingCycleUsed ||
+      (typeof subscription.plan === "object" && subscription.plan?.billingCycle) ||
+      subscription.planId?.billingCycle ||
+      "MONTH";
+
+    const amount =
+      subscription.amountPaid ??
+      subscription.amount ??
+      0;
+
+    const startDate = subscription.startDate;
+    const endDate = subscription.expiryDate || subscription.endDate;
+    const renewedAt = subscription.updatedAt || new Date().toISOString();
+    const receiptCode = subscription.code || "";
 
     // Initialize printer
     await BluetoothEscposPrinter.printerInit();
-    await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
     await BluetoothEscposPrinter.setBlob(0);
 
-    // Header
-    await BluetoothEscposPrinter.printText("MEMBERSHIP RENEWAL\n\r", { bold: true });
+    // ── Business Header ──────────────────────────────────────────────────
+    await printBusinessHeader(business);
+
+    // ── Receipt Title ────────────────────────────────────────────────────
+    await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+    await BluetoothEscposPrinter.printText("RENEWAL RECEIPT\n\r", { bold: true });
     await BluetoothEscposPrinter.printText("================================\n\r", {});
 
-    // Member Info
+    // ── Member & Plan Info ───────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
-    await BluetoothEscposPrinter.printText(`Member: ${memberName}\n\r`, {});
-    await BluetoothEscposPrinter.printText(`Plan: ${planName}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Member : ${memberName}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Plan   : ${planName}\n\r`, {});
     await BluetoothEscposPrinter.printText(
-      `Duration: ${duration} ${getUnitShorthand(durationType)}\n\r`,
+      `Duration: ${duration} ${getUnitLabel(durationType)}\n\r`,
+      {}
+    );
+    if (receiptCode) {
+      await BluetoothEscposPrinter.printText(`Code   : ${receiptCode}\n\r`, {});
+    }
+    await BluetoothEscposPrinter.printText("--------------------------------\n\r", {});
+
+    // ── Dates ────────────────────────────────────────────────────────────
+    await BluetoothEscposPrinter.printText(`Start  : ${formatDate(startDate)}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Expiry : ${formatDate(endDate)}\n\r`, {});
+    await BluetoothEscposPrinter.printText(
+      `Renewed: ${formatDate(renewedAt)} ${formatTime(renewedAt)}\n\r`,
       {}
     );
     await BluetoothEscposPrinter.printText("================================\n\r", {});
 
-    // Dates
-    const startDateStr = startDate.toLocaleDateString();
-    const endDateStr = endDate.toLocaleDateString();
-    const renewedAtStr = renewedAt.toLocaleDateString();
-    const renewedTimeStr = renewedAt
-      .toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-      .replace(/\u202f/g, " ");
-
-    await BluetoothEscposPrinter.printText(`Start Date: ${startDateStr}\n\r`, {});
-    await BluetoothEscposPrinter.printText(`End Date: ${endDateStr}\n\r`, {});
-    await BluetoothEscposPrinter.printText(
-      `Renewed: ${renewedAtStr} ${renewedTimeStr}\n\r`,
-      {}
-    );
-    await BluetoothEscposPrinter.printText("================================\n\r", {});
-
-    // Amount
+    // ── Amount ───────────────────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.RIGHT);
     await BluetoothEscposPrinter.printText(`Amount Paid: Rs.${amount}\n\r`, {
       bold: true,
     });
 
-    // Footer
+    // ── Footer ───────────────────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-    await BluetoothEscposPrinter.printText(
-      "\n\r\n\rThank you for renewing!\n\r\n\r\n\r\n\r",
-      {}
-    );
+    await BluetoothEscposPrinter.printText("================================\n\r", {});
+    await BluetoothEscposPrinter.printText("** RENEWAL RECEIPT **\n\r", {});
+    await BluetoothEscposPrinter.printText("Thank you for renewing!\n\r", {});
+    await BluetoothEscposPrinter.printText("\n\r\n\r\n\r\n\r", {});
     await BluetoothEscposPrinter.cutOnePoint();
 
     Alert.alert("Success", "Renewal receipt printed!");
@@ -178,74 +266,98 @@ export const printRenewalReceipt = async (subscription: any): Promise<void> => {
 /**
  * Print new subscription receipt
  */
-export const printSubscriptionReceipt = async (subscription: any): Promise<void> => {
+export const printSubscriptionReceipt = async (
+  subscription: any,
+  business: BusinessInfo = {}
+): Promise<void> => {
   if (!BluetoothEscposPrinter) {
     Alert.alert("Not Available", "Bluetooth printer not available in Expo Go");
     throw new Error("Bluetooth printer not available");
   }
-  
+
   try {
-    // Extract subscription data
-    const memberName = subscription.memberId?.name || "Member";
-    const planName = subscription.planId?.name || "Plan";
-    const duration = subscription.planId?.duration || 1;
-    const durationType = subscription.planId?.durationType || "month";
-    const amount = subscription.amount || 0;
-    const startDate = new Date(subscription.startDate);
-    const endDate = new Date(subscription.endDate);
-    const createdAt = new Date(subscription.createdAt || Date.now());
+    // Extract subscription data using correct field names
+    const memberName =
+      subscription.memberSnapshot?.name ||
+      subscription.memberId?.name ||
+      "Unknown Member";
+
+    // subscription.plan may be a populated object or a plain ID string
+    const planName =
+      (typeof subscription.plan === "object" && subscription.plan?.name)
+        ? subscription.plan.name
+        : subscription.planName ||           // explicit override from caller
+          subscription.planId?.name ||
+          "Unknown Plan";
+
+    const duration =
+      subscription.durationUsed ||
+      (typeof subscription.plan === "object" && subscription.plan?.duration) ||
+      subscription.planId?.duration ||
+      1;
+
+    const durationType =
+      subscription.billingCycleUsed ||
+      (typeof subscription.plan === "object" && subscription.plan?.billingCycle) ||
+      subscription.planId?.billingCycle ||
+      "MONTH";
+
+    const amount =
+      subscription.amountPaid ??
+      subscription.amount ??
+      0;
+
+    const startDate = subscription.startDate;
+    const endDate = subscription.expiryDate || subscription.endDate;
+    const createdAt = subscription.createdAt || new Date().toISOString();
+    const receiptCode = subscription.code || "";
 
     // Initialize printer
     await BluetoothEscposPrinter.printerInit();
-    await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
     await BluetoothEscposPrinter.setBlob(0);
 
-    // Header
-    await BluetoothEscposPrinter.printText("NEW MEMBERSHIP\n\r", { bold: true });
+    // ── Business Header ──────────────────────────────────────────────────
+    await printBusinessHeader(business);
+
+    // ── Receipt Title ────────────────────────────────────────────────────
+    await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
+    await BluetoothEscposPrinter.printText("MEMBERSHIP RECEIPT\n\r", { bold: true });
     await BluetoothEscposPrinter.printText("================================\n\r", {});
 
-    // Member Info
+    // ── Member & Plan Info ───────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
-    await BluetoothEscposPrinter.printText(`Member: ${memberName}\n\r`, {});
-    await BluetoothEscposPrinter.printText(`Plan: ${planName}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Member : ${memberName}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Plan   : ${planName}\n\r`, {});
     await BluetoothEscposPrinter.printText(
-      `Duration: ${duration} ${getUnitShorthand(durationType)}\n\r`,
+      `Duration: ${duration} ${getUnitLabel(durationType)}\n\r`,
+      {}
+    );
+    if (receiptCode) {
+      await BluetoothEscposPrinter.printText(`Code   : ${receiptCode}\n\r`, {});
+    }
+    await BluetoothEscposPrinter.printText("--------------------------------\n\r", {});
+
+    // ── Dates ────────────────────────────────────────────────────────────
+    await BluetoothEscposPrinter.printText(`Start  : ${formatDate(startDate)}\n\r`, {});
+    await BluetoothEscposPrinter.printText(`Expiry : ${formatDate(endDate)}\n\r`, {});
+    await BluetoothEscposPrinter.printText(
+      `Issued : ${formatDate(createdAt)} ${formatTime(createdAt)}\n\r`,
       {}
     );
     await BluetoothEscposPrinter.printText("================================\n\r", {});
 
-    // Dates
-    const startDateStr = startDate.toLocaleDateString();
-    const endDateStr = endDate.toLocaleDateString();
-    const createdAtStr = createdAt.toLocaleDateString();
-    const createdTimeStr = createdAt
-      .toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
-      .replace(/\u202f/g, " ");
-
-    await BluetoothEscposPrinter.printText(`Start Date: ${startDateStr}\n\r`, {});
-    await BluetoothEscposPrinter.printText(`End Date: ${endDateStr}\n\r`, {});
-    await BluetoothEscposPrinter.printText(
-      `Created: ${createdAtStr} ${createdTimeStr}\n\r`,
-      {}
-    );
-    await BluetoothEscposPrinter.printText("================================\n\r", {});
-
-    // Amount
+    // ── Amount ───────────────────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.RIGHT);
     await BluetoothEscposPrinter.printText(`Amount Paid: Rs.${amount}\n\r`, {
       bold: true,
     });
 
-    // Footer
+    // ── Footer ───────────────────────────────────────────────────────────
     await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-    await BluetoothEscposPrinter.printText(
-      "\n\r\n\rWelcome to our membership!\n\r\n\r\n\r\n\r",
-      {}
-    );
+    await BluetoothEscposPrinter.printText("================================\n\r", {});
+    await BluetoothEscposPrinter.printText("** MEMBERSHIP RECEIPT **\n\r", {});
+    await BluetoothEscposPrinter.printText("Welcome to our membership!\n\r", {});
+    await BluetoothEscposPrinter.printText("\n\r\n\r\n\r\n\r", {});
     await BluetoothEscposPrinter.cutOnePoint();
 
     Alert.alert("Success", "Subscription receipt printed!");
@@ -260,12 +372,20 @@ export const printSubscriptionReceipt = async (subscription: any): Promise<void>
  */
 export const printTestReceipt = async (): Promise<void> => {
   const dummySubscription = {
-    memberId: { name: "John Doe" },
-    planId: { name: "Gold Plan", duration: 1, durationType: "month" },
-    amount: 500,
+    memberSnapshot: { name: "John Doe", mobile: "9876543210" },
+    plan: { name: "Gold Plan", duration: 1, billingCycle: "month" },
+    durationUsed: 1,
+    billingCycleUsed: "MONTH",
+    amountPaid: 500,
+    code: "MEM-001",
     startDate: new Date().toISOString(),
-    endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
   };
-  await printSubscriptionReceipt(dummySubscription);
+  const dummyBusiness: BusinessInfo = {
+    businessName: "My Gym",
+    ownerName: "Owner Name",
+    mobileNumber: "9876543210",
+  };
+  await printSubscriptionReceipt(dummySubscription, dummyBusiness);
 };
